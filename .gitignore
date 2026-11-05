@@ -1,0 +1,5 @@
+*.exe
+*.exe~
+/dist/
+*.test
+*.out
