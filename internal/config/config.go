@@ -34,7 +34,7 @@ type Config struct {
 
 const (
 	defaultPoll       = 180
-	defaultMinRefresh = 15
+	defaultMinRefresh = 30
 )
 
 func (c *Config) Poll() time.Duration {

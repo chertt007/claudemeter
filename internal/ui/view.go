@@ -193,7 +193,10 @@ func (m *Model) status(a *account, iw int) string {
 	case a.fetching && a.usage != nil:
 		right = sTitle.Render(spinner[m.frame%len(spinner)]) + sFaint.Render(" updating")
 	case a.err != nil:
-		right = errText(a)
+		right = errText(a, m.now)
+		if !a.fetchedAt.IsZero() {
+			right = sFaint.Render("data "+fmtAgo(a.fetchedAt, m.now)+" · ") + right
+		}
 	case !a.fetchedAt.IsZero():
 		right = sFaint.Render("⟳ " + fmtAgo(a.fetchedAt, m.now))
 	}
@@ -203,7 +206,7 @@ func (m *Model) status(a *account, iw int) string {
 	return spread(left, right, iw)
 }
 
-func errText(a *account) string {
+func errText(a *account, now time.Time) string {
 	var apiErr *claude.APIError
 	switch {
 	case errors.Is(a.err, claude.ErrTokenExpired):
@@ -213,7 +216,10 @@ func errText(a *account) string {
 	case errors.As(a.err, &apiErr) && apiErr.Status == 401:
 		return sWarn.Render("⚠ token rejected · open claude to re-login")
 	case errors.As(a.err, &apiErr) && apiErr.Status == 429:
-		return sWarn.Render("⚠ rate limited · retrying later")
+		if d := a.notBefore.Sub(now); d > 0 {
+			return sWarn.Render("⚠ rate limited · retry in " + fmtDur(d))
+		}
+		return sWarn.Render("⚠ rate limited · retrying")
 	default:
 		return sErr.Render("⚠ " + truncate(a.err.Error(), 48))
 	}

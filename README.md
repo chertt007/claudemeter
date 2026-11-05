@@ -44,7 +44,7 @@ Add that folder in ClaudeMeter with `a`. Which project you work in doesn't matte
 ## How it works
 
 - **Limits**: `GET https://api.anthropic.com/api/oauth/usage`, called with the OAuth token from `<profile>/.credentials.json`. This endpoint is undocumented and may change. The request does not use any of your quota.
-- **When it refreshes**: after Claude Code writes to a transcript, it waits 3 seconds and then refreshes, at most every 15 seconds per account. Otherwise it refreshes every 3 minutes.
+- **When it refreshes**: after Claude Code writes to a transcript, it waits 3 seconds and then refreshes, at most every 30 seconds per account. Otherwise it refreshes every 3 minutes.
 - **Tokens**: read incrementally from `<profile>/projects/**/*.jsonl`, with duplicates removed by request id.
 - **Credentials are read-only**. ClaudeMeter never refreshes tokens, because that would rotate the refresh token out from under Claude Code. If a token has expired, open `claude` in that profile and the card recovers by itself.
 
@@ -59,7 +59,7 @@ Stored at `%APPDATA%\ClaudeMeter\config.json`:
     { "name": "personal", "dir": "C:\Users\me\.claude-personal" }
   ],
   "poll_seconds": 180,
-  "min_refresh_seconds": 15,
+  "min_refresh_seconds": 30,
   "animations": true
 }
 ```

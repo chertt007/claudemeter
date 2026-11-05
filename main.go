@@ -43,13 +43,13 @@ func main() {
 	}
 
 	if *once {
-		fmt.Println(ui.New(cfg, nil).Snapshot(*width))
+		fmt.Println(ui.New(cfg, config.LoadCache(path), nil).Snapshot(*width))
 		return
 	}
 
 	w := watch.New()
 	defer w.Close()
-	if _, err := tea.NewProgram(ui.New(cfg, w), tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(ui.New(cfg, config.LoadCache(path), w), tea.WithAltScreen()).Run(); err != nil {
 		fail(err)
 	}
 }

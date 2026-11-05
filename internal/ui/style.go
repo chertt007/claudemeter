@@ -205,6 +205,13 @@ func fmtAgo(t, now time.Time) string {
 	}
 }
 
+func fmtDur(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(math.Ceil(d.Seconds())))
+	}
+	return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
+}
+
 func fmtTokens(n int64) string {
 	f := float64(n)
 	switch {

@@ -3,6 +3,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"math"
 	"os"
@@ -36,8 +37,11 @@ type account struct {
 	attemptAt   time.Time // last attempt
 	fetching    bool
 	err         error
-	wantFetchAt time.Time // scheduled fetch (zero = none)
-	notBefore   time.Time // backoff after errors
+	wantFetchAt time.Time     // scheduled fetch (zero = none)
+	notBefore   time.Time     // backoff after errors
+	limited     int           // consecutive 429 responses
+	gap         time.Duration // adaptive min gap between activity-driven refreshes
+	okStreak    int           // successes since the gap was last changed
 
 	// animation state
 	shown     map[string]float64 // displayed bar values, eased towards targets
@@ -56,6 +60,7 @@ const (
 
 type Model struct {
 	cfg     *config.Config
+	cache   *config.Cache
 	watcher *watch.Watcher
 	accts   []*account
 	nextID  int
@@ -90,8 +95,8 @@ type (
 	}
 )
 
-func New(cfg *config.Config, w *watch.Watcher) *Model {
-	m := &Model{cfg: cfg, watcher: w, now: time.Now(), width: 80}
+func New(cfg *config.Config, cache *config.Cache, w *watch.Watcher) *Model {
+	m := &Model{cfg: cfg, cache: cache, watcher: w, now: time.Now(), width: 80}
 	for _, a := range cfg.Accounts {
 		m.addAccount(a)
 	}
@@ -109,6 +114,14 @@ func (m *Model) addAccount(c config.Account) *account {
 	}
 	if cr, err := claude.ReadCredentials(c.Dir); err == nil {
 		a.plan = cr.Plan()
+	}
+	if m.cache != nil {
+		if e, ok := m.cache.Get(c.Dir); ok {
+			var u claude.Usage
+			if json.Unmarshal(e.Usage, &u) == nil {
+				a.usage, a.fetchedAt = &u, e.FetchedAt
+			}
+		}
 	}
 	if m.watcher != nil {
 		if err := m.watcher.Add(c.Dir); err != nil {
@@ -286,13 +299,22 @@ func (m *Model) restats(a *account) tea.Cmd {
 	return func() tea.Msg { return statsMsg{id: id, stats: t.Stats(since)} }
 }
 
+const maxGap = 5 * time.Minute
+
+// gap is the current minimum interval between refreshes for an account. It
+// doubles on every 429 and slowly shrinks back after a run of successes, so
+// the app settles just under whatever rate the endpoint tolerates.
+func (m *Model) gap(a *account) time.Duration {
+	return max(a.gap, m.cfg.MinRefresh())
+}
+
 // schedule asks for a usage refresh soon, without exceeding MinRefresh.
 func (m *Model) schedule(a *account, delay time.Duration) {
 	if !a.wantFetchAt.IsZero() {
 		return // already scheduled; don't let a busy session postpone it forever
 	}
 	at := m.now.Add(delay)
-	if gap := a.attemptAt.Add(m.cfg.MinRefresh()); gap.After(at) {
+	if gap := a.attemptAt.Add(m.gap(a)); gap.After(at) {
 		at = gap
 	}
 	a.wantFetchAt = at
@@ -404,14 +426,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.usage = msg.usage
 			a.fetchedAt = msg.at
 			a.notBefore = time.Time{}
+			a.limited = 0
+			if a.okStreak++; a.okStreak >= 4 && a.gap > m.cfg.MinRefresh() {
+				a.gap, a.okStreak = a.gap/2, 0
+			}
+			if m.cache != nil {
+				if b, err := json.Marshal(msg.usage); err == nil {
+					_ = m.cache.Put(a.cfg.Dir, config.CachedUsage{FetchedAt: msg.at, Usage: b})
+				}
+			}
 			return m, tea.Batch(m.restats(a), m.animate())
 		}
 		var apiErr *claude.APIError
 		switch {
+		case errors.As(msg.err, &apiErr) && apiErr.Status == 429:
+			// Exponential backoff: 30s, 1m, 2m, ... capped at 10m, unless the
+			// server says exactly how long to wait.
+			a.limited++
+			a.gap, a.okStreak = min(m.gap(a)*2, maxGap), 0
+			wait := min(30*time.Second<<min(a.limited-1, 5), 10*time.Minute)
+			if apiErr.RetryAfter > 0 {
+				wait = apiErr.RetryAfter
+			}
+			a.notBefore = msg.at.Add(wait)
 		case errors.As(msg.err, &apiErr) && apiErr.RetryAfter > 0:
 			a.notBefore = msg.at.Add(apiErr.RetryAfter)
-		case errors.As(msg.err, &apiErr) && apiErr.Status == 429:
-			a.notBefore = msg.at.Add(time.Minute)
 		case errors.Is(msg.err, claude.ErrTokenExpired), errors.Is(msg.err, claude.ErrNotLoggedIn):
 			// Nothing to do until the credentials file changes (watched).
 		default:
