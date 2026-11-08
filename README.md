@@ -11,6 +11,28 @@ A lightweight terminal dashboard for **Claude Code subscription limits**, for se
 
 ## Install
 
+**Requirements:** [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and logged in at least once. Windows 10/11 or Linux. macOS is not supported yet, because Claude Code keeps the token in the Keychain there.
+
+### Download (no Go needed)
+
+1. Download the binary from the [latest release](https://github.com/chertt007/claudemeter/releases/latest):
+   - Windows: [`claudemeter_windows_amd64.exe`](https://github.com/chertt007/claudemeter/releases/latest/download/claudemeter_windows_amd64.exe) (`_arm64` for ARM laptops)
+   - Linux: `claudemeter_linux_amd64` / `claudemeter_linux_arm64`
+2. Rename it to `claudemeter.exe`, put it in any folder on your `PATH`, and run `claudemeter` in a terminal. Windows Terminal looks best.
+
+Or in PowerShell:
+
+```powershell
+$dir = "$env:LOCALAPPDATA\Programs\ClaudeMeter"
+New-Item -ItemType Directory -Force $dir | Out-Null
+Invoke-WebRequest https://github.com/chertt007/claudemeter/releases/latest/download/claudemeter_windows_amd64.exe -OutFile "$dir\claudemeter.exe"
+& "$dir\claudemeter.exe"
+```
+
+The binary is not code-signed, so the first time Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**. Checksums are in `SHA256SUMS.txt` next to each release.
+
+### With Go
+
 ```powershell
 go install github.com/chertt007/claudemeter@latest
 # or build locally
