@@ -14,23 +14,31 @@ A lightweight terminal dashboard for **Claude Code subscription limits**, for se
 
 **Requirements:** [Claude Code](https://docs.claude.com/en/docs/claude-code) installed and logged in at least once. Windows 10/11 or Linux. macOS is not supported yet, because Claude Code keeps the token in the Keychain there.
 
-### Download (no Go needed)
+### Windows: one command (recommended)
 
-1. Download the binary from the [latest release](https://github.com/chertt007/claudemeter/releases/latest):
-   - Windows: [`claudemeter_windows_amd64.exe`](https://github.com/chertt007/claudemeter/releases/latest/download/claudemeter_windows_amd64.exe) (`_arm64` for ARM laptops)
-   - Linux: `claudemeter_linux_amd64` / `claudemeter_linux_arm64`
-2. Rename it to `claudemeter.exe`, put it in any folder on your `PATH`, and run `claudemeter` in a terminal. Windows Terminal looks best.
-
-Or in PowerShell:
+Paste into PowerShell:
 
 ```powershell
-$dir = "$env:LOCALAPPDATA\Programs\ClaudeMeter"
-New-Item -ItemType Directory -Force $dir | Out-Null
-Invoke-WebRequest https://github.com/chertt007/claudemeter/releases/latest/download/claudemeter_windows_amd64.exe -OutFile "$dir\claudemeter.exe"
-& "$dir\claudemeter.exe"
+irm https://raw.githubusercontent.com/chertt007/claudemeter/main/install.ps1 | iex
 ```
 
-The binary is not code-signed, so the first time Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**. Checksums are in `SHA256SUMS.txt` next to each release.
+It picks the right build for your processor (x64 or ARM64), checks its SHA-256, installs it to `%LOCALAPPDATA%\Programs\ClaudeMeter`, adds it to your `PATH` and creates a **ClaudeMeter** shortcut in the Start menu. Then open a new terminal and run `claudemeter`. Run the same command again to update. Nothing needs admin rights.
+
+To uninstall:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/chertt007/claudemeter/main/install.ps1))) -Uninstall
+```
+
+### Windows: direct download
+
+[`claudemeter_windows_amd64.exe`](https://github.com/chertt007/claudemeter/releases/latest/download/claudemeter_windows_amd64.exe) works on any 64-bit Windows 10/11 PC, including ARM laptops on Windows 11 (through x64 emulation). Rename it to `claudemeter.exe` and run it; Windows Terminal looks best.
+
+The file is not code-signed, so on first launch Windows SmartScreen may say "Windows protected your PC". Click **More info**, then **Run anyway**. The installer above avoids this.
+
+### Linux
+
+Download `claudemeter_linux_amd64` or `claudemeter_linux_arm64` from the [latest release](https://github.com/chertt007/claudemeter/releases/latest), `chmod +x` it and run it. Checksums for every file are in `SHA256SUMS.txt`.
 
 ### With Go
 
