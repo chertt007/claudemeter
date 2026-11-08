@@ -17,6 +17,7 @@ import (
 	"github.com/chertt007/claudemeter/internal/claude"
 	"github.com/chertt007/claudemeter/internal/config"
 	"github.com/chertt007/claudemeter/internal/logs"
+	"github.com/chertt007/claudemeter/internal/tray"
 	"github.com/chertt007/claudemeter/internal/watch"
 )
 
@@ -76,6 +77,8 @@ type Model struct {
 
 	frame     int
 	animating bool
+
+	tray *tray.Tray
 }
 
 type (
@@ -133,7 +136,8 @@ func (m *Model) addAccount(c config.Account) *account {
 }
 
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{tea.SetWindowTitle("ClaudeMeter"), tick(), m.waitFS()}
+	m.syncTray()
+	cmds := []tea.Cmd{tea.SetWindowTitle("ClaudeMeter"), tick(), m.waitFS(), m.waitTray()}
 	for _, a := range m.accts {
 		cmds = append(cmds, m.fetch(a), m.scan(a))
 	}
@@ -321,7 +325,18 @@ func (m *Model) schedule(a *account, delay time.Duration) {
 }
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	model, cmd := m.update(msg)
+	if _, anim := msg.(frameMsg); !anim {
+		m.syncTray()
+	}
+	return model, cmd
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+	case trayMsg:
+		return m.onTray(msg)
+
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		return m, nil

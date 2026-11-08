@@ -4,12 +4,17 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/chertt007/claudemeter/internal/claude"
 	"github.com/chertt007/claudemeter/internal/config"
+	"github.com/chertt007/claudemeter/internal/tray"
 	"github.com/chertt007/claudemeter/internal/ui"
 	"github.com/chertt007/claudemeter/internal/watch"
 )
@@ -21,6 +26,7 @@ func main() {
 	width := flag.Int("width", 90, "snapshot width for --once")
 	cfgPath := flag.String("config", "", "config file (default %APPDATA%/ClaudeMeter/config.json)")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	noTray := flag.Bool("no-tray", false, "don't show the notification-area icon (Windows)")
 	flag.Parse()
 
 	if *showVersion {
@@ -49,7 +55,19 @@ func main() {
 
 	w := watch.New()
 	defer w.Close()
-	if _, err := tea.NewProgram(ui.New(cfg, config.LoadCache(path), w), tea.WithAltScreen()).Run(); err != nil {
+	m := ui.New(cfg, config.LoadCache(path), w)
+	if cfg.TrayOn() && !*noTray {
+		log.SetOutput(io.Discard) // the tray library logs to stderr, which would garble the TUI
+		t := tray.Start()
+		defer t.Stop()
+		m.SetTray(t)
+	}
+	p := tea.NewProgram(m, tea.WithAltScreen())
+	// Closing the console window: quit cleanly so the tray icon is removed.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGHUP)
+	go func() { <-sig; p.Quit() }()
+	if _, err := p.Run(); err != nil {
 		fail(err)
 	}
 }

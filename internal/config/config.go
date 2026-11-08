@@ -31,6 +31,8 @@ type Config struct {
 	// Gun shows a rifle next to each card whose magazine mirrors the 5-hour
 	// limit (toggled with "g").
 	Gun *bool `json:"gun,omitempty"`
+	// Tray shows a notification-area icon with the session % (Windows).
+	Tray *bool `json:"tray,omitempty"`
 
 	path string
 }
@@ -57,6 +59,8 @@ func (c *Config) MinRefresh() time.Duration {
 func (c *Config) AnimationsOn() bool { return c.Animations == nil || *c.Animations }
 
 func (c *Config) GunOn() bool { return c.Gun == nil || *c.Gun }
+
+func (c *Config) TrayOn() bool { return c.Tray == nil || *c.Tray }
 
 func (c *Config) Path() string { return c.path }
 

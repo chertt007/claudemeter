@@ -6,6 +6,7 @@ A lightweight terminal dashboard for **Claude Code subscription limits**, for se
 - Near real-time: it watches each profile's session logs, and a couple of seconds after Claude answers the bars update.
 - Local token tally for the current 5h window, with a sparkline of activity.
 - A rifle next to each card: its magazine holds what is left of the 5h limit (30 rounds = untouched), it fires while Claude is working and smokes afterwards. Each account gets its own colour.
+- Tray icon (Windows): one vertical gauge per account showing the 5h session usage, green / yellow / red like the bars. Hover for a summary of all accounts. Click for details per account, refresh or quit.
 - Add and remove subscriptions from the UI. Existing `~/.claude*` profiles are discovered on first run.
 - Light on resources. A single native `.exe` uses about 25 MB of RAM. No polling loops: Windows notifies it about file changes, and animation frames run only while something moves.
 
@@ -44,6 +45,7 @@ go build -o claudemeter.exe .
 ```powershell
 claudemeter          # interactive dashboard
 claudemeter --once   # print one snapshot and exit
+claudemeter --no-tray  # without the tray icon
 ```
 
 | Key | Action |
@@ -85,11 +87,12 @@ Stored at `%APPDATA%\ClaudeMeter\config.json`:
   "poll_seconds": 180,
   "min_refresh_seconds": 30,
   "animations": true,
-  "gun": true
+  "gun": true,
+  "tray": true
 }
 ```
 
 ## Roadmap
 
 - [x] Terminal dashboard
-- [ ] Tray icon with the current session %
+- [x] Tray icon with the current session %
