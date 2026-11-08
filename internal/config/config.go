@@ -28,6 +28,9 @@ type Config struct {
 	MinRefreshSeconds int `json:"min_refresh_seconds,omitempty"`
 	// Animations can be set to false to render static frames only.
 	Animations *bool `json:"animations,omitempty"`
+	// Gun shows a rifle next to each card whose magazine mirrors the 5-hour
+	// limit (toggled with "g").
+	Gun *bool `json:"gun,omitempty"`
 
 	path string
 }
@@ -52,6 +55,8 @@ func (c *Config) MinRefresh() time.Duration {
 }
 
 func (c *Config) AnimationsOn() bool { return c.Animations == nil || *c.Animations }
+
+func (c *Config) GunOn() bool { return c.Gun == nil || *c.Gun }
 
 func (c *Config) Path() string { return c.path }
 

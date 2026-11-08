@@ -166,7 +166,7 @@ func (a *account) live(now time.Time) bool { return now.Sub(a.lastWrite) < liveF
 
 func (m *Model) needsFrames() bool {
 	for _, a := range m.accts {
-		if a.fetching || a.live(m.now) || a.easing() {
+		if a.fetching || a.live(m.now) || a.easing() || (m.cfg.GunOn() && m.now.Sub(a.lastWrite) < shootFor+smokeFor) {
 			return true
 		}
 	}
@@ -507,6 +507,13 @@ func (m *Model) updateNormal(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, m.animate())
 		return m, tea.Batch(cmds...)
+	case "g":
+		on := !m.cfg.GunOn()
+		m.cfg.Gun = &on
+		if err := m.cfg.Save(); err != nil {
+			m.notice = "Could not save config: " + err.Error()
+		}
+		return m, m.animate()
 	case "a", "+", "insert":
 		return m, m.openAdd()
 	case "d", "-", "delete":

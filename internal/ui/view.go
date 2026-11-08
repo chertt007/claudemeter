@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	colorful "github.com/lucasb-eyer/go-colorful"
 
 	"github.com/chertt007/claudemeter/internal/claude"
 	"github.com/chertt007/claudemeter/internal/logs"
@@ -20,12 +21,18 @@ var (
 
 const labelW = 16
 
-func (m *Model) cardWidth() int {
-	return max(48, min(m.width-1, 100))
+// layout returns the card width and whether the rifles fit beside the cards.
+func (m *Model) layout() (int, bool) {
+	if m.cfg.GunOn() && len(m.accts) > 0 {
+		if w := min(m.width-1-gunGap-gunW, 100); w >= 72 {
+			return w, true
+		}
+	}
+	return max(48, min(m.width-1, 100)), false
 }
 
 func (m *Model) View() string {
-	w := m.cardWidth()
+	w, guns := m.layout()
 	var parts []string
 	parts = append(parts, m.header(w))
 
@@ -35,7 +42,11 @@ func (m *Model) View() string {
 				sFaint.Render("Press ")+sKey.Render("a")+sFaint.Render(" to add a Claude Code profile folder (e.g. ~/.claude-work).")))
 	}
 	for i, a := range m.accts {
-		parts = append(parts, m.card(a, i == m.sel, w))
+		c := m.card(a, i == m.sel, acctColor(i), w)
+		if guns {
+			c = lipgloss.JoinHorizontal(lipgloss.Bottom, c, strings.Repeat(" ", gunGap), m.gun(a, acctColor(i)))
+		}
+		parts = append(parts, c)
 	}
 	switch m.mode {
 	case modeAdd:
@@ -73,14 +84,16 @@ func (m *Model) header(w int) string {
 	return top + "\n" + rule
 }
 
-func (m *Model) card(a *account, selected bool, w int) string {
+func (m *Model) card(a *account, selected bool, col colorful.Color, w int) string {
 	iw := w - 4 // border + padding
 	var rows []string
 
 	// Title row.
-	marker, name := sFaint.Render("◇ "), sName.Render(a.cfg.Name)
+	lc := lipgloss.Color(col.Hex())
+	accent := lipgloss.NewStyle().Bold(true).Foreground(lc)
+	marker, name := sFaint.Render("◇ "), accent.Render(a.cfg.Name)
 	if selected {
-		marker, name = sTitle.Render("◆ "), sTitle.Render(a.cfg.Name)
+		marker = accent.Render("◆ ")
 	}
 	who := a.ident.Email
 	if a.ident.Org != "" && !strings.Contains(strings.ToLower(a.ident.Org), strings.ToLower(a.ident.Email)) {
@@ -88,7 +101,7 @@ func (m *Model) card(a *account, selected bool, w int) string {
 	}
 	badge := ""
 	if a.plan != "" {
-		badge = sBadge.Render(a.plan)
+		badge = sBadge.Background(lc).Render(a.plan)
 	}
 	maxWho := iw - lipgloss.Width(marker+name) - lipgloss.Width(badge) - 4
 	left := marker + name
@@ -116,9 +129,9 @@ func (m *Model) card(a *account, selected bool, w int) string {
 	// Token activity from local transcripts.
 	rows = append(rows, "", m.activity(a, iw), m.status(a, iw))
 
-	st := sCard
+	st := sCard.BorderForeground(lipgloss.Color(col.BlendLuv(mustHex("#1F2937"), 0.55).Hex()))
 	if selected {
-		st = sCardSel
+		st = sCard.BorderForeground(lc)
 	}
 	return st.Width(w - 2).Render(strings.Join(rows, "\n"))
 }
@@ -261,7 +274,7 @@ func (m *Model) help() string {
 		return ""
 	}
 	return " " + keyHelp("↑↓", "select") + keyHelp("a", "add") + keyHelp("d", "remove") +
-		keyHelp("r", "refresh") + keyHelp("R", "all") + keyHelp("q", "quit")
+		keyHelp("r", "refresh") + keyHelp("R", "all") + keyHelp("g", "gun") + keyHelp("q", "quit")
 }
 
 // Snapshot loads everything synchronously and renders one static frame

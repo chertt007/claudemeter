@@ -5,6 +5,7 @@ A lightweight terminal dashboard for **Claude Code subscription limits**, for se
 - Session (5h) and weekly limits per account, with reset times. These are the same numbers Claude Code's `/usage` shows.
 - Near real-time: it watches each profile's session logs, and a couple of seconds after Claude answers the bars update.
 - Local token tally for the current 5h window, with a sparkline of activity.
+- A rifle next to each card: its magazine holds what is left of the 5h limit (30 rounds = untouched), it fires while Claude is working and smokes afterwards. Each account gets its own colour.
 - Add and remove subscriptions from the UI. Existing `~/.claude*` profiles are discovered on first run.
 - Light on resources. A single native `.exe` uses about 25 MB of RAM. No polling loops: Windows notifies it about file changes, and animation frames run only while something moves.
 
@@ -29,6 +30,7 @@ claudemeter --once   # print one snapshot and exit
 | `a` | add subscription |
 | `d` | remove selected (the profile itself is not touched) |
 | `r` / `R` | refresh selected / all |
+| `g` | show / hide the rifles |
 | `q` | quit |
 
 ### Multiple accounts
@@ -60,7 +62,8 @@ Stored at `%APPDATA%\ClaudeMeter\config.json`:
   ],
   "poll_seconds": 180,
   "min_refresh_seconds": 30,
-  "animations": true
+  "animations": true,
+  "gun": true
 }
 ```
 
