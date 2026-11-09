@@ -195,6 +195,8 @@ func (m *Model) status(a *account, iw int) string {
 	switch {
 	case a.live(m.now):
 		left = pulse(hGreen, m.frame).Render("●") + sOK.Render(" Claude is working")
+	case a.remote(m.now):
+		left = pulse(hWarm, m.frame).Render("●") + lipgloss.NewStyle().Foreground(lipgloss.Color(hWarm.Hex())).Render(" Claude is working in the app / web")
 	case !a.stats.LastActivity.IsZero():
 		left = sFaint.Render("○ last activity " + fmtAgo(a.stats.LastActivity, m.now))
 	default:

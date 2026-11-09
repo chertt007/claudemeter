@@ -63,7 +63,7 @@ var (
 	cFlash = []colorful.Color{mustHex("#FFF3B0"), mustHex("#FACC15"), mustHex("#FB923C")}
 )
 
-func (a *account) shooting(now time.Time) bool { return now.Sub(a.lastWrite) < shootFor }
+func (a *account) shooting(now time.Time) bool { return now.Sub(a.lastActive()) < shootFor }
 
 // magFill returns how many magazine pixel rows are loaded and the rounds left.
 func magFill(a *account) (rowsLoaded, rounds int, known bool) {
@@ -178,7 +178,7 @@ func (m *Model) gunFx(a *account, firing, empty bool) string {
 			}
 		}
 		style = lipgloss.NewStyle().Foreground(lipgloss.Color("#E8B04B"))
-	case m.cfg.AnimationsOn() && m.now.Sub(a.lastWrite) < shootFor+smokeFor && !a.lastWrite.IsZero():
+	case m.cfg.AnimationsOn() && m.now.Sub(a.lastActive()) < shootFor+smokeFor && !a.lastActive().IsZero():
 		wisps := []string{"∿ ", " ∿", "~ ", " ~"}
 		copy(line[gunPx:], []rune(wisps[int(m.now.UnixMilli()/400)%len(wisps)]))
 		style = sFaint

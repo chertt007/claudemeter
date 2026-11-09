@@ -17,10 +17,10 @@ var (
 )
 
 // Credentials is the subset of <dir>/.credentials.json we need. The file is
-// only ever read: Claude Code owns token refresh, and refreshing here would
-// rotate the refresh token out from under it.
+// read here; refreshing (see EnsureFresh) writes the rotated pair back.
 type Credentials struct {
 	AccessToken      string `json:"accessToken"`
+	RefreshToken     string `json:"refreshToken"`
 	ExpiresAt        int64  `json:"expiresAt"` // unix ms
 	SubscriptionType string `json:"subscriptionType"`
 	RateLimitTier    string `json:"rateLimitTier"`
@@ -65,8 +65,9 @@ func (c *Credentials) Plan() string {
 
 // Identity is who the profile is logged in as.
 type Identity struct {
-	Email string
-	Org   string
+	Email   string
+	Org     string
+	OrgUUID string
 }
 
 // ReadIdentity reads oauthAccount from the profile's .claude.json. For the
@@ -85,10 +86,15 @@ func ReadIdentity(dir string) Identity {
 			OAuthAccount *struct {
 				EmailAddress     string `json:"emailAddress"`
 				OrganizationName string `json:"organizationName"`
+				OrganizationUUID string `json:"organizationUuid"`
 			} `json:"oauthAccount"`
 		}
 		if json.Unmarshal(b, &f) == nil && f.OAuthAccount != nil {
-			return Identity{Email: f.OAuthAccount.EmailAddress, Org: f.OAuthAccount.OrganizationName}
+			return Identity{
+				Email:   f.OAuthAccount.EmailAddress,
+				Org:     f.OAuthAccount.OrganizationName,
+				OrgUUID: strings.ToLower(f.OAuthAccount.OrganizationUUID),
+			}
 		}
 	}
 	return Identity{}

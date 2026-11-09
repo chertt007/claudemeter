@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/bubbles/textinput"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/chertt007/claudemeter/internal/claude"
 	"github.com/chertt007/claudemeter/internal/config"
+	"github.com/chertt007/claudemeter/internal/desktop"
 	"github.com/chertt007/claudemeter/internal/logs"
 	"github.com/chertt007/claudemeter/internal/tray"
 	"github.com/chertt007/claudemeter/internal/watch"
@@ -29,6 +31,7 @@ type account struct {
 	id      int
 	cfg     config.Account
 	ident   claude.Identity
+	org     atomic.Value // string: organization uuid, read by the tracker filter
 	plan    string
 	tracker *logs.Tracker
 
@@ -47,6 +50,7 @@ type account struct {
 	// animation state
 	shown     map[string]float64 // displayed bar values, eased towards targets
 	lastWrite time.Time          // last transcript write seen (drives shimmer)
+	remoteAt  time.Time          // usage grew without local writes (desktop / web / mobile)
 	delta     float64            // session % increase from the last refresh
 	deltaAt   time.Time
 }
@@ -79,6 +83,10 @@ type Model struct {
 	animating bool
 
 	tray *tray.Tray
+
+	desk         *desktop.Index
+	deskHome     string // profile dir the desktop app writes to (~/.claude)
+	deskProjects string
 }
 
 type (
@@ -99,9 +107,20 @@ type (
 )
 
 func New(cfg *config.Config, cache *config.Cache, w *watch.Watcher) *Model {
-	m := &Model{cfg: cfg, cache: cache, watcher: w, now: time.Now(), width: 80}
+	m := &Model{cfg: cfg, cache: cache, watcher: w, now: time.Now(), width: 80, desk: desktop.New()}
+	if home, err := os.UserHomeDir(); err == nil {
+		m.deskHome = filepath.Join(home, ".claude")
+		m.deskProjects = filepath.Join(m.deskHome, "projects")
+	}
 	for _, a := range cfg.Accounts {
 		m.addAccount(a)
+	}
+	// The desktop app writes its Code transcripts here even when no tracked
+	// account uses this folder.
+	if w != nil && m.deskHome != "" {
+		if fi, err := os.Stat(m.deskHome); err == nil && fi.IsDir() {
+			_ = w.Add(m.deskHome)
+		}
 	}
 	return m
 }
@@ -111,10 +130,11 @@ func (m *Model) addAccount(c config.Account) *account {
 	a := &account{
 		id:      m.nextID,
 		cfg:     c,
-		ident:   claude.ReadIdentity(c.Dir),
 		tracker: logs.New(c.Dir),
 		shown:   map[string]float64{},
 	}
+	a.setIdent(claude.ReadIdentity(c.Dir))
+	a.tracker.SetFilter(m.deskProjects, func(p string) bool { return m.owns(a, p) })
 	if cr, err := claude.ReadCredentials(c.Dir); err == nil {
 		a.plan = cr.Plan()
 	}
@@ -152,6 +172,9 @@ const (
 	frameEvery = 60 * time.Millisecond
 	liveFor    = 6 * time.Second
 	deltaFor   = 10 * time.Second
+	// remoteFor is how long usage that grew without local transcript writes
+	// (Claude desktop chat, web, mobile) keeps the account on fast refresh.
+	remoteFor = 3 * time.Minute
 )
 
 func frame() tea.Cmd {
@@ -168,9 +191,31 @@ func (m *Model) animate() tea.Cmd {
 
 func (a *account) live(now time.Time) bool { return now.Sub(a.lastWrite) < liveFor }
 
+// remote reports recent usage outside Claude Code on this machine.
+func (a *account) remote(now time.Time) bool {
+	return !a.remoteAt.IsZero() && now.Sub(a.remoteAt) < remoteFor
+}
+
+// lastActive is the latest sign of Claude working for this account, local or not.
+func (a *account) lastActive() time.Time {
+	if a.remoteAt.After(a.lastWrite) {
+		return a.remoteAt
+	}
+	return a.lastWrite
+}
+
+// poll is the background refresh interval: fast while usage is growing
+// somewhere we can't see locally.
+func (m *Model) poll(a *account) time.Duration {
+	if a.remote(m.now) {
+		return m.gap(a)
+	}
+	return m.cfg.Poll()
+}
+
 func (m *Model) needsFrames() bool {
 	for _, a := range m.accts {
-		if a.fetching || a.live(m.now) || a.easing() || (m.cfg.GunOn() && m.now.Sub(a.lastWrite) < shootFor+smokeFor) {
+		if a.fetching || a.live(m.now) || a.easing() || (m.cfg.GunOn() && m.now.Sub(a.lastActive()) < shootFor+smokeFor) {
 			return true
 		}
 	}
@@ -230,6 +275,31 @@ func (m *Model) byID(id int) *account {
 	return nil
 }
 
+func (a *account) setIdent(id claude.Identity) {
+	a.ident = id
+	a.org.Store(id.OrgUUID)
+}
+
+func underDir(p, dir string) bool {
+	return dir != "" && strings.HasPrefix(strings.ToLower(p), strings.ToLower(dir)+string(filepath.Separator))
+}
+
+// owns reports whether a transcript belongs to an account. Files go to the
+// profile that contains them, except desktop-app sessions, which go to the
+// account logged in under the same organization. Safe for concurrent use.
+func (m *Model) owns(a *account, p string) bool {
+	own := underDir(p, a.cfg.Dir)
+	if !underDir(p, m.deskProjects) {
+		return own
+	}
+	org, ok := m.desk.Org(desktop.SessionOf(m.deskProjects, p))
+	mine, _ := a.org.Load().(string)
+	if !ok || mine == "" {
+		return own
+	}
+	return org == mine
+}
+
 // accountFor maps a changed path to the profile containing it.
 func (m *Model) accountFor(p string) *account {
 	lp := strings.ToLower(p)
@@ -262,18 +332,17 @@ func (m *Model) fetch(a *account) tea.Cmd {
 	return func() tea.Msg {
 		msg := usageMsg{id: id}
 		defer func() { msg.at = time.Now() }()
-		cr, err := claude.ReadCredentials(dir)
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		cr, err := claude.EnsureFresh(ctx, dir)
 		if err != nil {
 			msg.err = err
+			if cr, rerr := claude.ReadCredentials(dir); rerr == nil {
+				msg.plan = cr.Plan()
+			}
 			return msg
 		}
 		msg.plan = cr.Plan()
-		if cr.Expired(time.Now()) {
-			msg.err = claude.ErrTokenExpired
-			return msg
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
 		msg.usage, msg.err = claude.FetchUsage(ctx, cr.AccessToken)
 		msg.at = time.Now()
 		return msg
@@ -362,7 +431,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				continue
 			}
 			due := !a.wantFetchAt.IsZero() && !m.now.Before(a.wantFetchAt)
-			stale := m.now.Sub(a.attemptAt) >= m.cfg.Poll()
+			stale := m.now.Sub(a.attemptAt) >= m.poll(a)
 			// A window just reset: fetch fresh numbers instead of showing 99%.
 			if a.usage != nil && a.err == nil {
 				for _, b := range a.usage.Bars() {
@@ -389,8 +458,16 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				continue
 			}
-			if a := m.accountFor(p); a != nil {
-				byAcct[a] = append(byAcct[a], p)
+			if strings.EqualFold(filepath.Base(p), ".credentials.json") {
+				if a := m.accountFor(p); a != nil {
+					byAcct[a] = append(byAcct[a], p)
+				}
+				continue
+			}
+			for _, a := range m.accts {
+				if m.owns(a, p) {
+					byAcct[a] = append(byAcct[a], p)
+				}
 			}
 		}
 		for a, paths := range byAcct {
@@ -398,7 +475,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, p := range paths {
 				if strings.EqualFold(filepath.Base(p), ".credentials.json") {
 					// Claude Code refreshed or replaced the login.
-					a.ident = claude.ReadIdentity(a.cfg.Dir)
+					a.setIdent(claude.ReadIdentity(a.cfg.Dir))
 					if a.err != nil || a.usage == nil {
 						a.notBefore = time.Time{}
 						m.schedule(a, time.Second)
@@ -436,6 +513,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.usage != nil {
 				if d := sessionPct(msg.usage) - sessionPct(a.usage); d >= 0.5 {
 					a.delta, a.deltaAt = d, msg.at
+					// Grew with no transcript writes since the previous
+					// numbers: Claude is busy in the desktop app, web or mobile.
+					recent := msg.at.Sub(a.fetchedAt) <= m.cfg.Poll()+time.Minute
+					if recent && a.lastWrite.Before(a.fetchedAt) {
+						a.remoteAt = msg.at
+					}
 				}
 			}
 			a.usage = msg.usage
@@ -645,7 +728,7 @@ func (m *Model) updateDelete(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if err := m.cfg.Save(); err != nil {
 			m.notice = "Could not save config: " + err.Error()
 		}
-		if m.watcher != nil {
+		if m.watcher != nil && !strings.EqualFold(a.cfg.Dir, m.deskHome) {
 			m.watcher.Remove(a.cfg.Dir)
 		}
 		m.accts = append(m.accts[:m.sel], m.accts[m.sel+1:]...)

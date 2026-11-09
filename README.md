@@ -80,7 +80,9 @@ Add that folder in ClaudeMeter with `a`. Which project you work in doesn't matte
 - **Limits**: `GET https://api.anthropic.com/api/oauth/usage`, called with the OAuth token from `<profile>/.credentials.json`. This endpoint is undocumented and may change. The request does not use any of your quota.
 - **When it refreshes**: after Claude Code writes to a transcript, it waits 3 seconds and then refreshes, at most every 30 seconds per account. Otherwise it refreshes every 3 minutes.
 - **Tokens**: read incrementally from `<profile>/projects/**/*.jsonl`, with duplicates removed by request id.
-- **Credentials are read-only**. ClaudeMeter never refreshes tokens, because that would rotate the refresh token out from under Claude Code. If a token has expired, open `claude` in that profile and the card recovers by itself.
+- **Claude desktop app**: its Code sessions always write to `~/.claude/projects`, whichever account the app is logged into. ClaudeMeter reads the app's session metadata (`%APPDATA%\Claude\claude-code-sessions`) and credits those tokens to the account with the same organization.
+- **Chat in the desktop app, web or mobile** leaves nothing on disk, but it uses the same limits. When an account's session % grows without any local Claude Code activity, the card shows "Claude is working in the app / web" and refreshes about every 30 seconds until usage stops growing for 3 minutes.
+- **Token refresh**: when an access token has expired, ClaudeMeter refreshes it the same way Claude Code does and writes the new token pair back to `<profile>/.credentials.json` (atomically, keeping all other fields). It re-reads the file first, so if Claude Code already refreshed it nothing is spent. If the refresh token itself is dead, open `claude` in that profile to log in again.
 
 ## Config
 

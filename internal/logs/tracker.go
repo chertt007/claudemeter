@@ -44,6 +44,8 @@ const (
 type Tracker struct {
 	mu      sync.Mutex
 	root    string
+	extra   string            // another projects dir to read from (filtered)
+	keep    func(string) bool // which transcripts belong to this profile
 	offsets map[string]int64
 	entries map[string]entry
 	last    time.Time
@@ -57,14 +59,36 @@ func New(profileDir string) *Tracker {
 	}
 }
 
+// SetFilter also reads transcripts from extraProjects and keeps only the
+// files for which keep returns true (in both directories).
+func (t *Tracker) SetFilter(extraProjects string, keep func(path string) bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if !strings.EqualFold(filepath.Clean(extraProjects), filepath.Clean(t.root)) {
+		t.extra = extraProjects
+	}
+	t.keep = keep
+}
+
 // Scan walks all transcripts. Files untouched within the keep window are only
 // remembered by size so later appends are read from there.
 func (t *Tracker) Scan() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	for _, root := range []string{t.root, t.extra} {
+		if root != "" {
+			t.scanLocked(root)
+		}
+	}
+}
+
+func (t *Tracker) scanLocked(root string) {
 	cutoff := time.Now().Add(-keep)
-	_ = filepath.WalkDir(t.root, func(p string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".jsonl") {
+			return nil
+		}
+		if t.keep != nil && !t.keep(p) {
 			return nil
 		}
 		info, err := d.Info()
@@ -86,6 +110,9 @@ func (t *Tracker) Scan() {
 func (t *Tracker) Update(path string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.keep != nil && !t.keep(path) {
+		return
+	}
 	t.readLocked(path)
 }
 
